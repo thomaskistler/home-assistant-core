@@ -40,6 +40,7 @@ FLOWS = {
         "alarmdecoder",
         "amberelectric",
         "ambiclimate",
+        "ambient_network",
         "ambient_station",
         "android_ip_webcam",
         "androidtv",

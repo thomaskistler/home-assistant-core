@@ -1,0 +1,13 @@
+{
+  "domain": "ambient_network",
+  "name": "Ambient Weather Network",
+  "codeowners": ["@thomaskistler"],
+  "config_flow": true,
+  "dependencies": [],
+  "documentation": "https://www.home-assistant.io/integrations/ambient_network",
+  "homekit": {},
+  "iot_class": "cloud_polling",
+  "requirements": [],
+  "ssdp": [],
+  "zeroconf": []
+}

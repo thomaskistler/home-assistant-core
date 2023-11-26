@@ -52,28 +52,35 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     def __init__(self) -> None:
         """Construct the config flow."""
         super().__init__()
-        self._longitude = 0.0
-        self._latitude = 0.0
-        self._radius = 0.0
-        self._station_mac_address = "00:00:00:00:00:00:00:00"
-        self._station_name = "Unknown"
-        self._station_mnemonic = "UKNW"
+        self._longitude: float = 0.0
+        self._latitude: float = 0.0
+        self._radius: float = 0.0
+        self._mac_address: str = "00:00:00:00:00:00:00:00"
+        self._name: str = "Unknown"
+        self._mnemonic: str = "UKNW"
 
-    def create_mnemonic(self, text):
-        """Create a four-letter mnemonic from a text string."""
+    def create_mnemonic(self, text: str) -> str:
+        """Create a four-letter mnemonic from a text string.
+
+        Args:
+            text: string to create the mnemonic for
+
+        Returns:
+            Four letter mnemonic
+        """
         # Split the text by spaces
-        words = text.split()
+        words: list[str] = text.split()
 
         # Process each word
-        mnemonic = ""
+        mnemonic: str = ""
         for word in words:
             # Use regular expression to split the word between uppercase and lowercase letters
-            parts = re.findall(
+            parts: list[str] = re.findall(
                 r"[a-z][a-z0-9\-]+|[A-Z][a-z0-9\-]+|[A-Z][A-Z0-9\-]+", word
             )
 
             for part in parts:
-                match = re.match(r"([a-zA-Z]+)[\-0-9]", part)
+                match: re.Match | None = re.match(r"([a-zA-Z]+)[\-0-9]", part)
                 if match is not None:
                     # Take all the letters preceding the dash or numbers
                     mnemonic += match.group(1).upper()
@@ -89,7 +96,14 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
-        """Handle the initial step to select the location."""
+        """Handle the initial step to select the location.
+
+        Args:
+            user_input: Step input
+
+        Returns:
+            Flow result
+        """
         errors: dict[str, str] = {}
         if user_input is not None:
             self._latitude = user_input[CONFIG_LOCATION][CONFIG_LOCATION_LATITUDE]
@@ -99,7 +113,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             )
             return await self.async_step_station()
 
-        STEP_LOCATION_DATA_SCHEMA = self.add_suggested_values_to_schema(
+        schema: vol.Schema = self.add_suggested_values_to_schema(
             vol.Schema(
                 {
                     vol.Required(
@@ -119,43 +133,53 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         return self.async_show_form(
             step_id=CONFIG_STEP_USER,
-            data_schema=STEP_LOCATION_DATA_SCHEMA,
+            data_schema=schema,
             errors=errors,
         )
 
     async def async_step_station(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
-        """Handle the second step to select the station."""
+        """Handle the second step to select the station.
+
+        Args:
+            user_input: Step input
+
+        Returns:
+            Flow result
+        """
         errors: dict[str, str] = {}
         if user_input is not None:
             (
-                self._station_mac_address,
-                self._station_mnemonic,
-                self._station_name,
-            ) = user_input[CONFIG_STATION].split(",")
-            await self.async_set_unique_id(self._station_mac_address)
+                self._mac_address,
+                self._mnemonic,
+                self._name,
+            ) = user_input[
+                CONFIG_STATION
+            ].split(",")
+            await self.async_set_unique_id(self._mac_address)
             self._abort_if_unique_id_configured()
             return await self.async_step_mnemonic()
 
-        client = OpenAPI()
-        stations = await client.get_devices_by_location(
+        client: OpenAPI = OpenAPI()
+        stations: list[dict[str, Any]] = await client.get_devices_by_location(
             self._latitude, self._longitude, radius=self._radius
         )
 
         if len(stations) == 0:
             return self.async_abort(reason="no_stations_found")
 
-        options = list[SelectOptionDict]()
+        options: list[SelectOptionDict] = list[SelectOptionDict]()
         for station in stations:
-            station_name = station[API_STATION_INFO][API_STATION_NAME]
-            station_mnemonic = self.create_mnemonic(station_name)
-            option = SelectOptionDict(
-                label=f"{station_name} ({station_mnemonic})",
-                value=f"{station[API_STATION_MAC_ADDRESS]},{station_mnemonic},{station_name}",
+            name: str = station[API_STATION_INFO][API_STATION_NAME]
+            mnemonic: str = self.create_mnemonic(name)
+            option: SelectOptionDict = SelectOptionDict(
+                label=f"{name} ({mnemonic})",
+                value=f"{station[API_STATION_MAC_ADDRESS]},{mnemonic},{name}",
             )
             options.append(option)
-        STEP_STATION_DATA_SCHEMA = vol.Schema(
+
+        schema: vol.Schema = vol.Schema(
             {
                 vol.Required(CONFIG_STATION): SelectSelector(
                     SelectSelectorConfig(
@@ -168,31 +192,38 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         return self.async_show_form(
             step_id=CONFIG_STEP_STATION,
-            data_schema=STEP_STATION_DATA_SCHEMA,
+            data_schema=schema,
             errors=errors,
         )
 
     async def async_step_mnemonic(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
-        """Handle the third step to assign a mnemonic."""
+        """Handle the third step to assign a mnemonic.
+
+        Args:
+            user_input: Step input
+
+        Returns:
+            Flow result
+        """
         errors: dict[str, str] = {}
         if user_input is not None:
             return self.async_create_entry(
-                title=f"{self._station_name} ({user_input[CONFIG_MNEMONIC]})",
+                title=f"{self._name} ({user_input[CONFIG_MNEMONIC]})",
                 data={
-                    ENTITY_NAME: self._station_name,
-                    ENTITY_MAC_ADDRESS: self._station_mac_address,
+                    ENTITY_NAME: self._name,
+                    ENTITY_MAC_ADDRESS: self._mac_address,
                     ENTITY_MNEMONIC: user_input[CONFIG_MNEMONIC],
                 },
             )
 
-        STEP_MNEMONIC_DATA_SCHEMA = vol.Schema(
-            {vol.Required(CONFIG_MNEMONIC, default=self._station_mnemonic): str}
+        schema: vol.Schema = vol.Schema(
+            {vol.Required(CONFIG_MNEMONIC, default=self._mnemonic): str}
         )
 
         return self.async_show_form(
             step_id=CONFIG_STEP_MNEMONIC,
-            data_schema=STEP_MNEMONIC_DATA_SCHEMA,
+            data_schema=schema,
             errors=errors,
         )

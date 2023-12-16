@@ -2,15 +2,17 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from typing import Any
 
 from aiohttp import ClientError
-from pydrawise import legacy
+from pydrawise import client, legacy
+from pydrawise.exceptions import NotAuthorizedError
 import voluptuous as vol
 
 from homeassistant import config_entries
-from homeassistant.const import CONF_API_KEY
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import CONF_API_KEY, CONF_PASSWORD, CONF_USERNAME
 from homeassistant.core import DOMAIN as HOMEASSISTANT_DOMAIN
 from homeassistant.data_entry_flow import AbortFlow, FlowResult, FlowResultType
 from homeassistant.helpers.issue_registry import IssueSeverity, async_create_issue
@@ -21,16 +23,32 @@ from .const import DOMAIN, LOGGER
 class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Hydrawise."""
 
-    VERSION = 1
+    VERSION = 2
 
-    async def _create_entry(
-        self, api_key: str, *, on_failure: Callable[[str], FlowResult]
+    def __init__(self) -> None:
+        """Construct a ConfigFlow."""
+        self.reauth_entry: ConfigEntry | None = None
+
+    async def _create_or_update_entry(
+        self,
+        api_key: str,
+        username: str,
+        password: str,
+        *,
+        on_failure: Callable[[str], FlowResult],
     ) -> FlowResult:
         """Create the config entry."""
-        api = legacy.LegacyHydrawiseAsync(api_key)
+
+        # Verify that the provided credentials work."""
+        if api_key != "":
+            api = legacy.LegacyHydrawiseAsync(api_key)
+        else:
+            api = client.Hydrawise(client.Auth(username, password))
         try:
             # Skip fetching zones to save on metered API calls.
             user = await api.get_user(fetch_zones=False)
+        except NotAuthorizedError:
+            return on_failure("invalid_auth")
         except TimeoutError:
             return on_failure("timeout_connect")
         except ClientError as ex:
@@ -38,9 +56,29 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             return on_failure("cannot_connect")
 
         await self.async_set_unique_id(f"hydrawise-{user.customer_id}")
-        self._abort_if_unique_id_configured()
+        if not self.reauth_entry:
+            self._abort_if_unique_id_configured()
 
-        return self.async_create_entry(title="Hydrawise", data={CONF_API_KEY: api_key})
+            # We are creating an entry for username/password even if we
+            # import a legacy YAML file. This will require users to immediately
+            # re-authenticate.
+            return self.async_create_entry(
+                title="Hydrawise",
+                data={
+                    CONF_USERNAME: username,
+                    CONF_PASSWORD: password,
+                },
+            )
+
+        self.hass.config_entries.async_update_entry(
+            self.reauth_entry,
+            data={
+                CONF_USERNAME: username,
+                CONF_PASSWORD: password,
+            },
+        )
+        await self.hass.config_entries.async_reload(self.reauth_entry.entry_id)
+        return self.async_abort(reason="reauth_successful")
 
     def _import_issue(self, error_type: str) -> FlowResult:
         """Create an issue about a YAML import failure."""
@@ -78,8 +116,12 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     ) -> FlowResult:
         """Handle the initial setup."""
         if user_input is not None:
-            api_key = user_input[CONF_API_KEY]
-            return await self._create_entry(api_key, on_failure=self._show_form)
+            username = user_input[CONF_USERNAME]
+            password = user_input[CONF_PASSWORD]
+
+            return await self._create_or_update_entry(
+                "", username, password, on_failure=self._show_form
+            )
         return self._show_form()
 
     def _show_form(self, error_type: str | None = None) -> FlowResult:
@@ -88,15 +130,26 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             errors["base"] = error_type
         return self.async_show_form(
             step_id="user",
-            data_schema=vol.Schema({vol.Required(CONF_API_KEY): str}),
+            data_schema=vol.Schema(
+                {vol.Required(CONF_USERNAME): str, vol.Required(CONF_PASSWORD): str}
+            ),
             errors=errors,
         )
+
+    async def async_step_reauth(self, user_input: Mapping[str, Any]) -> FlowResult:
+        """Perform reauth after updating config to version 2."""
+        self.reauth_entry = self.hass.config_entries.async_get_entry(
+            self.context["entry_id"]
+        )
+        return await self.async_step_user()
 
     async def async_step_import(self, import_data: dict[str, Any]) -> FlowResult:
         """Import data from YAML."""
         try:
-            result = await self._create_entry(
+            result = await self._create_or_update_entry(
                 import_data.get(CONF_API_KEY, ""),
+                "",
+                "",
                 on_failure=self._import_issue,
             )
         except AbortFlow:

@@ -6,7 +6,7 @@ from collections.abc import Callable, Mapping
 from typing import Any
 
 from aiohttp import ClientError
-from pydrawise import client, legacy
+from pydrawise import auth, client, legacy
 from pydrawise.exceptions import NotAuthorizedError
 import voluptuous as vol
 
@@ -40,10 +40,10 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """Create the config entry."""
 
         # Verify that the provided credentials work."""
-        if api_key != "":
+        if api_key:
             api = legacy.LegacyHydrawiseAsync(api_key)
         else:
-            api = client.Hydrawise(client.Auth(username, password))
+            api = client.Hydrawise(auth.Auth(username, password))
         try:
             # Skip fetching zones to save on metered API calls.
             user = await api.get_user(fetch_zones=False)

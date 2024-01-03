@@ -1,7 +1,7 @@
 """Support for Hydrawise cloud."""
 
 
-from pydrawise import client
+from pydrawise import auth, client
 import voluptuous as vol
 
 from homeassistant.config_entries import SOURCE_IMPORT, ConfigEntry
@@ -60,7 +60,7 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> b
         raise ConfigEntryAuthFailed
 
     hydrawise = client.Hydrawise(
-        client.Auth(config_entry.data[CONF_USERNAME], config_entry.data[CONF_PASSWORD])
+        auth.Auth(config_entry.data[CONF_USERNAME], config_entry.data[CONF_PASSWORD])
     )
 
     coordinator = HydrawiseDataUpdateCoordinator(hass, hydrawise, SCAN_INTERVAL)

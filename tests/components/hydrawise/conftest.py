@@ -11,7 +11,6 @@ from pydrawise.schema import (
     ScheduledZoneRuns,
     User,
     Zone,
-    ZoneStatus,
 )
 import pytest
 
@@ -110,7 +109,6 @@ def zones() -> list[Zone]:
                     duration=timedelta(seconds=1800),
                 ),
             ),
-            status=ZoneStatus(suspended_until=None),
         ),
         Zone(
             name="Zone Two",

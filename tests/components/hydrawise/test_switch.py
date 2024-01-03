@@ -34,7 +34,7 @@ async def test_states(
 
     auto_watering2 = hass.states.get("switch.zone_two_automatic_watering")
     assert auto_watering2 is not None
-    assert auto_watering2.state == "off"
+    assert auto_watering2.state == "on"
 
 
 async def test_manual_watering_services(

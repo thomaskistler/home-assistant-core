@@ -23,7 +23,8 @@ from .const import DOMAIN, LOGGER
 class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Hydrawise."""
 
-    VERSION = 2
+    VERSION = 1
+    MINOR_VERSION = 2
 
     def __init__(self) -> None:
         """Construct a ConfigFlow."""
@@ -31,9 +32,9 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     async def _create_or_update_entry(
         self,
-        api_key: str,
-        username: str,
-        password: str,
+        api_key: str | None = None,
+        username: str | None = None,
+        password: str | None = None,
         *,
         on_failure: Callable[[str], FlowResult],
     ) -> FlowResult:
@@ -56,6 +57,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             return on_failure("cannot_connect")
 
         await self.async_set_unique_id(f"hydrawise-{user.customer_id}")
+
         if not self.reauth_entry:
             self._abort_if_unique_id_configured()
 
@@ -64,18 +66,16 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             # re-authenticate.
             return self.async_create_entry(
                 title="Hydrawise",
-                data={
-                    CONF_USERNAME: username,
-                    CONF_PASSWORD: password,
-                },
+                data={CONF_API_KEY: api_key}
+                if api_key
+                else {CONF_USERNAME: username, CONF_PASSWORD: password},
             )
 
+        self.reauth_entry.minor_version = self.MINOR_VERSION
         self.hass.config_entries.async_update_entry(
             self.reauth_entry,
-            data={
-                CONF_USERNAME: username,
-                CONF_PASSWORD: password,
-            },
+            data=self.reauth_entry.data
+            | {CONF_USERNAME: username, CONF_PASSWORD: password},
         )
         await self.hass.config_entries.async_reload(self.reauth_entry.entry_id)
         return self.async_abort(reason="reauth_successful")
@@ -120,7 +120,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             password = user_input[CONF_PASSWORD]
 
             return await self._create_or_update_entry(
-                "", username, password, on_failure=self._show_form
+                username=username, password=password, on_failure=self._show_form
             )
         return self._show_form()
 
@@ -137,7 +137,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         )
 
     async def async_step_reauth(self, user_input: Mapping[str, Any]) -> FlowResult:
-        """Perform reauth after updating config to version 2."""
+        """Perform reauth after updating config to username/password."""
         self.reauth_entry = self.hass.config_entries.async_get_entry(
             self.context["entry_id"]
         )
@@ -147,9 +147,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """Import data from YAML."""
         try:
             result = await self._create_or_update_entry(
-                import_data.get(CONF_API_KEY, ""),
-                "",
-                "",
+                api_key=import_data.get(CONF_API_KEY, ""),
                 on_failure=self._import_issue,
             )
         except AbortFlow:

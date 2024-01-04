@@ -148,7 +148,8 @@ def mock_config_entry() -> MockConfigEntry:
             CONF_PASSWORD: "__password__",
         },
         unique_id="hydrawise-customerid",
-        version=2,
+        version=1,
+        minor_version=2,
     )
 
 

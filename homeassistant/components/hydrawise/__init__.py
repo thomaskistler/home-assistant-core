@@ -18,7 +18,7 @@ from homeassistant.exceptions import ConfigEntryAuthFailed
 import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers.typing import ConfigType
 
-from .const import DOMAIN, LOGGER, SCAN_INTERVAL
+from .const import DOMAIN, SCAN_INTERVAL
 from .coordinator import HydrawiseDataUpdateCoordinator
 
 CONFIG_SCHEMA = vol.Schema(
@@ -54,9 +54,9 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
 async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> bool:
     """Set up Hydrawise from a config entry."""
 
-    if config_entry.data[CONF_USERNAME] == "" or config_entry.data[CONF_PASSWORD] == "":
-        # In order to move to the new GraphQL API, users need to re-authenticate
-        # using the username/password instead of the API key.
+    if CONF_USERNAME not in config_entry.data or CONF_PASSWORD not in config_entry.data:
+        # The GraphQL API requires username and password to authenticate. If either is
+        # missing, reauth is required.
         raise ConfigEntryAuthFailed
 
     hydrawise = client.Hydrawise(
@@ -75,21 +75,3 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if unload_ok := await hass.config_entries.async_unload_platforms(entry, PLATFORMS):
         hass.data[DOMAIN].pop(entry.entry_id)
     return unload_ok
-
-
-async def async_migrate_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> bool:
-    """Migrate old entry."""
-    if config_entry.version == 1:
-        LOGGER.debug("Migrating from version %s", config_entry.version)
-        new = {**config_entry.data}
-        # Add the new username and password fields.
-        new.pop(CONF_API_KEY, None)
-        new[CONF_USERNAME] = ""
-        new[CONF_PASSWORD] = ""
-
-        config_entry.version = 2
-        hass.config_entries.async_update_entry(config_entry, data=new)
-
-        LOGGER.debug("Migration to version %s successful", config_entry.version)
-
-    return True

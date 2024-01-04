@@ -138,8 +138,9 @@ async def test_flow_import_success(
 
     assert result["type"] == FlowResultType.CREATE_ENTRY
     assert result["title"] == "Hydrawise"
-    assert result["data"] == {CONF_USERNAME: "", CONF_PASSWORD: ""}
-    assert result["version"] == 2
+    assert result["data"] == {CONF_API_KEY: "__api_key__"}
+    assert result["version"] == 1
+    assert result["minor_version"] == 2
 
     issue_registry = ir.async_get(hass)
     issue = issue_registry.async_get_issue(

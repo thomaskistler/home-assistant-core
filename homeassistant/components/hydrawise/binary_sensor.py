@@ -1,7 +1,7 @@
 """Support for Hydrawise sprinkler binary sensors."""
 from __future__ import annotations
 
-from pydrawise.schema import Zone
+from pydrawise.schema import Sensor, Zone
 import voluptuous as vol
 
 from homeassistant.components.binary_sensor import (
@@ -21,21 +21,37 @@ from .const import DOMAIN
 from .coordinator import HydrawiseDataUpdateCoordinator
 from .entity import HydrawiseEntity
 
-BINARY_SENSOR_STATUS = BinarySensorEntityDescription(
-    key="status",
-    device_class=BinarySensorDeviceClass.CONNECTIVITY,
+BINARY_SENSOR_CONTROLLER_TYPES: tuple[BinarySensorEntityDescription, ...] = (
+    BinarySensorEntityDescription(
+        key="status",
+        device_class=BinarySensorDeviceClass.CONNECTIVITY,
+    ),
 )
 
-BINARY_SENSOR_TYPES: tuple[BinarySensorEntityDescription, ...] = (
+BINARY_SENSOR_CONTROLLER_RAIN_TYPES: tuple[BinarySensorEntityDescription, ...] = (
     BinarySensorEntityDescription(
-        key="is_watering",
-        translation_key="watering",
+        key="stopping_irrigation",
+        translation_key="rain_sensor",
+        icon="mdi:weather-pouring",
         device_class=BinarySensorDeviceClass.MOISTURE,
     ),
 )
 
+BINARY_SENSOR_ZONE_TYPES: tuple[BinarySensorEntityDescription, ...] = (
+    BinarySensorEntityDescription(
+        key="is_watering",
+        translation_key="watering",
+        device_class=BinarySensorDeviceClass.RUNNING,
+    ),
+)
+
 BINARY_SENSOR_KEYS: list[str] = [
-    desc.key for desc in (BINARY_SENSOR_STATUS, *BINARY_SENSOR_TYPES)
+    desc.key
+    for desc in (
+        *BINARY_SENSOR_CONTROLLER_TYPES,
+        *BINARY_SENSOR_CONTROLLER_RAIN_TYPES,
+        *BINARY_SENSOR_ZONE_TYPES,
+    )
 ]
 
 # Deprecated since Home Assistant 2023.10.0
@@ -69,16 +85,28 @@ async def async_setup_entry(
     coordinator: HydrawiseDataUpdateCoordinator = hass.data[DOMAIN][
         config_entry.entry_id
     ]
-    entities = []
+    entities: list[HydrawiseBinarySensor] = []
     for controller in coordinator.data.controllers.values():
-        entities.append(
-            HydrawiseBinarySensor(coordinator, BINARY_SENSOR_STATUS, controller)
+        entities.extend(
+            HydrawiseBinarySensor(coordinator, description, controller)
+            for description in BINARY_SENSOR_CONTROLLER_TYPES
         )
-        for zone in controller.zones:
-            for description in BINARY_SENSOR_TYPES:
-                entities.append(
-                    HydrawiseBinarySensor(coordinator, description, controller, zone)
-                )
+        entities.extend(
+            HydrawiseBinarySensor(
+                coordinator,
+                description,
+                controller,
+                sensor=sensor,
+            )
+            for sensor in controller.sensors
+            for description in BINARY_SENSOR_CONTROLLER_RAIN_TYPES
+            if "rain sensor" in sensor.model.name.lower()
+        )
+        entities.extend(
+            HydrawiseBinarySensor(coordinator, description, controller, zone=zone)
+            for zone in controller.zones
+            for description in BINARY_SENSOR_ZONE_TYPES
+        )
     async_add_entities(entities)
 
 
@@ -92,3 +120,6 @@ class HydrawiseBinarySensor(HydrawiseEntity, BinarySensorEntity):
         elif self.entity_description.key == "is_watering":
             zone: Zone = self.zone
             self._attr_is_on = zone.scheduled_runs.current_run is not None
+        elif self.entity_description.key == "stopping_irrigation":
+            sensor: Sensor = self.sensor
+            self._attr_is_on = sensor.status.active

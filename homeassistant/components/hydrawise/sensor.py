@@ -1,8 +1,6 @@
 """Support for Hydrawise sprinkler sensors."""
 from __future__ import annotations
 
-from datetime import datetime
-
 from pydrawise.schema import Zone
 import voluptuous as vol
 
@@ -13,7 +11,7 @@ from homeassistant.components.sensor import (
     SensorEntityDescription,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import CONF_MONITORED_CONDITIONS, UnitOfTime
+from homeassistant.const import CONF_MONITORED_CONDITIONS, UnitOfTime, UnitOfVolume
 from homeassistant.core import HomeAssistant
 import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -21,24 +19,59 @@ from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 from homeassistant.util import dt as dt_util
 
 from .const import DOMAIN
-from .coordinator import HydrawiseDataUpdateCoordinator
+from .coordinator import DailyWaterUse, HydrawiseDataUpdateCoordinator
 from .entity import HydrawiseEntity
 
-SENSOR_TYPES: tuple[SensorEntityDescription, ...] = (
+SENSOR_CONTROLLER_FLOW_TYPES: tuple[SensorEntityDescription, ...] = (
+    SensorEntityDescription(
+        key="daily_water_use",
+        translation_key="daily_water_use",
+        icon="mdi:water-pump",
+        device_class=SensorDeviceClass.VOLUME,
+        native_unit_of_measurement=UnitOfVolume.GALLONS,
+    ),
+    SensorEntityDescription(
+        key="daily_non_active_water_use",
+        translation_key="daily_non_active_water_use",
+        icon="mdi:water-pump",
+        device_class=SensorDeviceClass.VOLUME,
+        native_unit_of_measurement=UnitOfVolume.GALLONS,
+    ),
+)
+
+SENSOR_ZONE_FLOW_TYPES: tuple[SensorEntityDescription, ...] = (
+    SensorEntityDescription(
+        key="daily_water_use",
+        translation_key="daily_water_use",
+        icon="mdi:water-pump",
+        device_class=SensorDeviceClass.VOLUME,
+        native_unit_of_measurement=UnitOfVolume.GALLONS,
+    ),
+)
+
+SENSOR_ZONE_TYPES: tuple[SensorEntityDescription, ...] = (
     SensorEntityDescription(
         key="next_cycle",
         translation_key="next_cycle",
+        icon="mdi:clock-outline",
         device_class=SensorDeviceClass.TIMESTAMP,
     ),
     SensorEntityDescription(
         key="watering_time",
         translation_key="watering_time",
-        icon="mdi:water-pump",
+        icon="mdi:timer-outline",
         native_unit_of_measurement=UnitOfTime.MINUTES,
     ),
 )
 
-SENSOR_KEYS: list[str] = [desc.key for desc in SENSOR_TYPES]
+SENSOR_KEYS: list[str] = [
+    desc.key
+    for desc in (
+        *SENSOR_CONTROLLER_FLOW_TYPES,
+        *SENSOR_ZONE_FLOW_TYPES,
+        *SENSOR_ZONE_TYPES,
+    )
+]
 
 # Deprecated since Home Assistant 2023.10.0
 # Can be removed completely in 2024.4.0
@@ -74,12 +107,29 @@ async def async_setup_entry(
     coordinator: HydrawiseDataUpdateCoordinator = hass.data[DOMAIN][
         config_entry.entry_id
     ]
-    async_add_entities(
-        HydrawiseSensor(coordinator, description, controller, zone)
-        for controller in coordinator.data.controllers.values()
-        for zone in controller.zones
-        for description in SENSOR_TYPES
-    )
+    entities: list[HydrawiseSensor] = []
+    for controller in coordinator.data.controllers.values():
+        entities.extend(
+            HydrawiseSensor(coordinator, description, controller, zone=zone)
+            for zone in controller.zones
+            for description in SENSOR_ZONE_TYPES
+        )
+        entities.extend(
+            HydrawiseSensor(coordinator, description, controller, sensor=sensor)
+            for sensor in controller.sensors
+            for description in SENSOR_CONTROLLER_FLOW_TYPES
+            if "flow meter" in sensor.model.name.lower()
+        )
+        entities.extend(
+            HydrawiseSensor(
+                coordinator, description, controller, zone=zone, sensor=sensor
+            )
+            for zone in controller.zones
+            for sensor in controller.sensors
+            for description in SENSOR_ZONE_FLOW_TYPES
+            if "flow meter" in sensor.model.name.lower()
+        )
+    async_add_entities(entities)
 
 
 class HydrawiseSensor(HydrawiseEntity, SensorEntity):
@@ -100,4 +150,20 @@ class HydrawiseSensor(HydrawiseEntity, SensorEntity):
             if (next_run := self.zone.scheduled_runs.next_run) is not None:
                 self._attr_native_value = dt_util.as_utc(next_run.start_time)
             else:
-                self._attr_native_value = datetime.max.replace(tzinfo=dt_util.UTC)
+                self._attr_native_value = None
+        elif self.entity_description.key == "daily_water_use":
+            if self.zone is None and self.sensor is not None:
+                self._attr_native_value = self.coordinator.data.daily_water_use.get(
+                    self.controller.id, DailyWaterUse(0, 0)
+                ).active
+            elif self.zone is not None:
+                self._attr_native_value = self.coordinator.data.daily_water_use.get(
+                    self.zone.id, DailyWaterUse(0, 0)
+                ).active
+            else:
+                self._attr_native_value = 0
+        elif self.entity_description.key == "daily_non_active_water_use":
+            if self.zone is None and self.sensor is not None:
+                self._attr_native_value = self.coordinator.data.daily_water_use.get(
+                    self.controller.id, DailyWaterUse(0, 0)
+                ).non_active

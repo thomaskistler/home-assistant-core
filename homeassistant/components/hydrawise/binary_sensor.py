@@ -21,23 +21,23 @@ from .const import DOMAIN
 from .coordinator import HydrawiseDataUpdateCoordinator
 from .entity import HydrawiseEntity
 
-BINARY_SENSOR_CONTROLLER_TYPES: tuple[BinarySensorEntityDescription, ...] = (
+CONTROLLER_BINARY_SENSORS: tuple[BinarySensorEntityDescription, ...] = (
     BinarySensorEntityDescription(
         key="status",
         device_class=BinarySensorDeviceClass.CONNECTIVITY,
     ),
 )
 
-BINARY_SENSOR_CONTROLLER_RAIN_TYPES: tuple[BinarySensorEntityDescription, ...] = (
+RAIN_SENSOR_BINARY_SENSOR: tuple[BinarySensorEntityDescription, ...] = (
     BinarySensorEntityDescription(
-        key="stopping_irrigation",
+        key="rain_sensor",
         translation_key="rain_sensor",
         icon="mdi:weather-pouring",
         device_class=BinarySensorDeviceClass.MOISTURE,
     ),
 )
 
-BINARY_SENSOR_ZONE_TYPES: tuple[BinarySensorEntityDescription, ...] = (
+ZONE_BINARY_SENSORS: tuple[BinarySensorEntityDescription, ...] = (
     BinarySensorEntityDescription(
         key="is_watering",
         translation_key="watering",
@@ -48,9 +48,9 @@ BINARY_SENSOR_ZONE_TYPES: tuple[BinarySensorEntityDescription, ...] = (
 BINARY_SENSOR_KEYS: list[str] = [
     desc.key
     for desc in (
-        *BINARY_SENSOR_CONTROLLER_TYPES,
-        *BINARY_SENSOR_CONTROLLER_RAIN_TYPES,
-        *BINARY_SENSOR_ZONE_TYPES,
+        *CONTROLLER_BINARY_SENSORS,
+        *RAIN_SENSOR_BINARY_SENSOR,
+        *ZONE_BINARY_SENSORS,
     )
 ]
 
@@ -89,7 +89,7 @@ async def async_setup_entry(
     for controller in coordinator.data.controllers.values():
         entities.extend(
             HydrawiseBinarySensor(coordinator, description, controller)
-            for description in BINARY_SENSOR_CONTROLLER_TYPES
+            for description in CONTROLLER_BINARY_SENSORS
         )
         entities.extend(
             HydrawiseBinarySensor(
@@ -99,13 +99,13 @@ async def async_setup_entry(
                 sensor=sensor,
             )
             for sensor in controller.sensors
-            for description in BINARY_SENSOR_CONTROLLER_RAIN_TYPES
+            for description in RAIN_SENSOR_BINARY_SENSOR
             if "rain sensor" in sensor.model.name.lower()
         )
         entities.extend(
             HydrawiseBinarySensor(coordinator, description, controller, zone=zone)
             for zone in controller.zones
-            for description in BINARY_SENSOR_ZONE_TYPES
+            for description in ZONE_BINARY_SENSORS
         )
     async_add_entities(entities)
 
@@ -120,6 +120,6 @@ class HydrawiseBinarySensor(HydrawiseEntity, BinarySensorEntity):
         elif self.entity_description.key == "is_watering":
             zone: Zone = self.zone
             self._attr_is_on = zone.scheduled_runs.current_run is not None
-        elif self.entity_description.key == "stopping_irrigation":
+        elif self.entity_description.key == "rain_sensor":
             sensor: Sensor = self.sensor
             self._attr_is_on = sensor.status.active

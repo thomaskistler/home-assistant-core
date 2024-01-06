@@ -1,7 +1,7 @@
 """Support for Hydrawise sprinkler sensors."""
 from __future__ import annotations
 
-from pydrawise.schema import Zone
+from pydrawise.schema import ControllerWaterUseSummary, Zone
 import voluptuous as vol
 
 from homeassistant.components.sensor import (
@@ -19,37 +19,48 @@ from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 from homeassistant.util import dt as dt_util
 
 from .const import DOMAIN
-from .coordinator import DailyWaterUse, HydrawiseDataUpdateCoordinator
+from .coordinator import HydrawiseDataUpdateCoordinator
 from .entity import HydrawiseEntity
 
-SENSOR_CONTROLLER_FLOW_TYPES: tuple[SensorEntityDescription, ...] = (
+FLOW_CONTROLLER_SENSORS: tuple[SensorEntityDescription, ...] = (
     SensorEntityDescription(
-        key="daily_water_use",
-        translation_key="daily_water_use",
+        key="daily_total_water_use",
+        translation_key="daily_total_water_use",
         icon="mdi:water-pump",
         device_class=SensorDeviceClass.VOLUME,
         native_unit_of_measurement=UnitOfVolume.GALLONS,
+        suggested_display_precision=1,
     ),
     SensorEntityDescription(
-        key="daily_non_active_water_use",
-        translation_key="daily_non_active_water_use",
+        key="daily_active_water_use",
+        translation_key="daily_active_water_use",
         icon="mdi:water-pump",
         device_class=SensorDeviceClass.VOLUME,
         native_unit_of_measurement=UnitOfVolume.GALLONS,
+        suggested_display_precision=1,
+    ),
+    SensorEntityDescription(
+        key="daily_inactive_water_use",
+        translation_key="daily_inactive_water_use",
+        icon="mdi:water-pump",
+        device_class=SensorDeviceClass.VOLUME,
+        native_unit_of_measurement=UnitOfVolume.GALLONS,
+        suggested_display_precision=1,
     ),
 )
 
-SENSOR_ZONE_FLOW_TYPES: tuple[SensorEntityDescription, ...] = (
+FLOW_ZONE_SENSORS: tuple[SensorEntityDescription, ...] = (
     SensorEntityDescription(
-        key="daily_water_use",
-        translation_key="daily_water_use",
+        key="daily_active_water_use",
+        translation_key="daily_active_water_use",
         icon="mdi:water-pump",
         device_class=SensorDeviceClass.VOLUME,
         native_unit_of_measurement=UnitOfVolume.GALLONS,
+        suggested_display_precision=1,
     ),
 )
 
-SENSOR_ZONE_TYPES: tuple[SensorEntityDescription, ...] = (
+ZONE_SENSORS: tuple[SensorEntityDescription, ...] = (
     SensorEntityDescription(
         key="next_cycle",
         translation_key="next_cycle",
@@ -67,9 +78,9 @@ SENSOR_ZONE_TYPES: tuple[SensorEntityDescription, ...] = (
 SENSOR_KEYS: list[str] = [
     desc.key
     for desc in (
-        *SENSOR_CONTROLLER_FLOW_TYPES,
-        *SENSOR_ZONE_FLOW_TYPES,
-        *SENSOR_ZONE_TYPES,
+        *FLOW_CONTROLLER_SENSORS,
+        *FLOW_ZONE_SENSORS,
+        *ZONE_SENSORS,
     )
 ]
 
@@ -112,12 +123,12 @@ async def async_setup_entry(
         entities.extend(
             HydrawiseSensor(coordinator, description, controller, zone=zone)
             for zone in controller.zones
-            for description in SENSOR_ZONE_TYPES
+            for description in ZONE_SENSORS
         )
         entities.extend(
             HydrawiseSensor(coordinator, description, controller, sensor=sensor)
             for sensor in controller.sensors
-            for description in SENSOR_CONTROLLER_FLOW_TYPES
+            for description in FLOW_CONTROLLER_SENSORS
             if "flow meter" in sensor.model.name.lower()
         )
         entities.extend(
@@ -126,7 +137,7 @@ async def async_setup_entry(
             )
             for zone in controller.zones
             for sensor in controller.sensors
-            for description in SENSOR_ZONE_FLOW_TYPES
+            for description in FLOW_ZONE_SENSORS
             if "flow meter" in sensor.model.name.lower()
         )
     async_add_entities(entities)
@@ -151,19 +162,32 @@ class HydrawiseSensor(HydrawiseEntity, SensorEntity):
                 self._attr_native_value = dt_util.as_utc(next_run.start_time)
             else:
                 self._attr_native_value = None
-        elif self.entity_description.key == "daily_water_use":
+        elif self.entity_description.key == "daily_active_water_use":
+            daily_water_summary = self.coordinator.data.daily_water_use.get(
+                self.controller.id, ControllerWaterUseSummary()
+            )
             if self.zone is None and self.sensor is not None:
-                self._attr_native_value = self.coordinator.data.daily_water_use.get(
-                    self.controller.id, DailyWaterUse(0, 0)
-                ).active
+                # water use for the controller
+                self._attr_native_value = daily_water_summary.total_active_use
             elif self.zone is not None:
-                self._attr_native_value = self.coordinator.data.daily_water_use.get(
-                    self.zone.id, DailyWaterUse(0, 0)
-                ).active
+                # water use for the zone
+                self._attr_native_value = daily_water_summary.active_use_by_zone.get(
+                    self.zone.id, 0.0
+                )
             else:
                 self._attr_native_value = 0
-        elif self.entity_description.key == "daily_non_active_water_use":
-            if self.zone is None and self.sensor is not None:
-                self._attr_native_value = self.coordinator.data.daily_water_use.get(
-                    self.controller.id, DailyWaterUse(0, 0)
-                ).non_active
+        elif (
+            self.entity_description.key
+            in ("daily_inactive_water_use", "daily_total_water_use")
+            and self.zone is None
+            and self.sensor is not None
+        ):
+            # water use for the controller
+            daily_water_summary = self.coordinator.data.daily_water_use.get(
+                self.controller.id, ControllerWaterUseSummary()
+            )
+            self._attr_native_value = (
+                daily_water_summary.total_inactive_use
+                if self.entity_description.key == "daily_inactive_water_use"
+                else daily_water_summary.total_use
+            )

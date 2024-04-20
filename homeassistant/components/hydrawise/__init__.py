@@ -1,6 +1,5 @@
 """Support for Hydrawise cloud."""
 
-
 from pydrawise import auth, client
 import voluptuous as vol
 

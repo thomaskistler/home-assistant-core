@@ -140,7 +140,7 @@ async def test_flow_import_success(
     assert result["title"] == "Hydrawise"
     assert result["data"] == {CONF_API_KEY: "__api_key__"}
     assert result["version"] == 1
-    assert result["minor_version"] == 2
+    assert result["minor_version"] == 1
 
     issue_registry = ir.async_get(hass)
     issue = issue_registry.async_get_issue(

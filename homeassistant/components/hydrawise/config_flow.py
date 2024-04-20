@@ -23,7 +23,6 @@ class HydrawiseConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Hydrawise."""
 
     VERSION = 1
-    MINOR_VERSION = 2
 
     def __init__(self) -> None:
         """Construct a ConfigFlow."""
@@ -60,9 +59,9 @@ class HydrawiseConfigFlow(ConfigFlow, domain=DOMAIN):
         if not self.reauth_entry:
             self._abort_if_unique_id_configured()
 
-            # We are creating an entry for username/password even if we
-            # import a legacy YAML file. This will require users to immediately
-            # re-authenticate.
+            # We are creating an entry. For legacy YAML files, we are creating
+            # an entry containing the api_key, which will be required to immediately
+            # re-authenticated with the username/password.
             return self.async_create_entry(
                 title="Hydrawise",
                 data={CONF_API_KEY: api_key}
@@ -70,7 +69,6 @@ class HydrawiseConfigFlow(ConfigFlow, domain=DOMAIN):
                 else {CONF_USERNAME: username, CONF_PASSWORD: password},
             )
 
-        self.reauth_entry.minor_version = self.MINOR_VERSION
         self.hass.config_entries.async_update_entry(
             self.reauth_entry,
             data=self.reauth_entry.data
